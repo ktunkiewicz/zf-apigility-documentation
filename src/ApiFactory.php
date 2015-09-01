@@ -369,13 +369,16 @@ class ApiFactory
             }
             if ($className) {
                 $class = new $className();
+                if (method_exists($class, 'setServiceLocator')) {
+                    $class->setServiceLocator($this->inputFilterManager->getServiceLocator());
+                }
                 if (method_exists($class, 'getInputFilterDocumentation')) {
                     try {
-                        $fields = $class->getInputFilterDocumentation();
+                        $fields = @$class->getInputFilterDocumentation();
                     } catch (\Exception $e) {}
                 } else if (method_exists($class, 'getInputFilterSpecification')) {
                     try {
-                        $fields = $class->getInputFilterSpecification();
+                        $fields = @$class->getInputFilterSpecification();
                     } catch (\Exception $e) {}
                 }
             }
