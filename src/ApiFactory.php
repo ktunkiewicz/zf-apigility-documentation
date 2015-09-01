@@ -370,9 +370,13 @@ class ApiFactory
             if ($className) {
                 $class = new $className();
                 if (method_exists($class, 'getInputFilterDocumentation')) {
-                    $fields = $class->getInputFilterDocumentation();
+                    try {
+                        $fields = $class->getInputFilterDocumentation();
+                    } catch (\Exception $e) {}
                 } else if (method_exists($class, 'getInputFilterSpecification')) {
-                    $fields = $class->getInputFilterSpecification();
+                    try {
+                        $fields = $class->getInputFilterSpecification();
+                    } catch (\Exception $e) {}
                 }
             }
         }
