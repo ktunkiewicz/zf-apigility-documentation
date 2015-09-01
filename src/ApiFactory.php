@@ -6,6 +6,7 @@
 
 namespace ZF\Apigility\Documentation;
 
+use Zend\InputFilter\InputFilterPluginManager;
 use Zend\ModuleManager\ModuleManager;
 use ZF\Apigility\Provider\ApigilityProviderInterface;
 use ZF\Configuration\ModuleUtils as ConfigModuleUtils;
@@ -28,6 +29,11 @@ class ApiFactory
     protected $configModuleUtils;
 
     /**
+     * @var InputFilterPluginManager
+     */
+    protected $inputFilterManager;
+
+    /**
      * @var array
      */
     protected $docs = [];
@@ -37,11 +43,12 @@ class ApiFactory
      * @param array $config
      * @param ConfigModuleUtils $configModuleUtils
      */
-    public function __construct(ModuleManager $moduleManager, $config, ConfigModuleUtils $configModuleUtils)
+    public function __construct(ModuleManager $moduleManager, $config, ConfigModuleUtils $configModuleUtils, InputFilterPluginManager $inputFilterManager)
     {
         $this->moduleManager = $moduleManager;
         $this->config = $config;
         $this->configModuleUtils = $configModuleUtils;
+        $this->inputFilterManager = $inputFilterManager;
     }
 
     /**
@@ -198,13 +205,13 @@ class ApiFactory
         }
 
         $fields = [];
-        if (isset($this->config['zf-content-validation'][$serviceClassName]['input_filter'])) {
-            $validatorName = $this->config['zf-content-validation'][$serviceClassName]['input_filter'];
-            if (isset($this->config['input_filter_specs'][$validatorName])) {
-                foreach ($this->mapFields($this->config['input_filter_specs'][$validatorName]) as $fieldData) {
-                    $fields['input_filter'][] = $this->getField($fieldData);
+        if (!empty($this->config['zf-content-validation'][$serviceClassName])) {
+            foreach($this->config['zf-content-validation'][$serviceClassName] as $methodName => $validatorName) {
+                $validators = $this->getFields($validatorName);
+                if ($validators) {
+                    $this->mapFields($validators, '', $fields[$methodName]);
+                    $hasFields = true;
                 }
-                $hasFields = true;
             }
         }
 
@@ -216,21 +223,6 @@ class ApiFactory
         foreach ($baseOperationData as $httpMethod) {
             $op = new Operation();
             $op->setHttpMethod($httpMethod);
-
-            if (isset($this->config['zf-content-validation'][$serviceClassName][$httpMethod])) {
-                $validatorName = $this->config['zf-content-validation'][$serviceClassName][$httpMethod];
-                if (isset($this->config['input_filter_specs'][$validatorName])) {
-                    foreach ($this->config['input_filter_specs'][$validatorName] as $fieldData) {
-                        $fields[$httpMethod][] = $field = new Field();
-                        $field->setName($fieldData['name']);
-                        if (isset($fieldData['description'])) {
-                            $field->setDescription($fieldData['description']);
-                        }
-                        $field->setRequired($fieldData['required']);
-                    }
-                    $hasFields = true;
-                }
-            }
 
             if ($isRest) {
                 $description = isset($docsArray[$serviceClassName]['collection'][$httpMethod]['description'])
@@ -350,38 +342,69 @@ class ApiFactory
     }
 
     /**
-     * @param array $fields
-     * @param string $prefix To unwind nesting of fields
+     *
+     * Reads fields from config or class/service
+     *
+     * Fields definition are read from one of below sources in this order (first found is used):
+     * - $config['input_filter_specs'][$name]
+     * - $inputFilterManager->get($name)->getInputFilterDocumentation()
+     * - $inputFilterManager->get($name)->getInputFilterSpecification()
+     *
+     * @param $validatorName
      * @return array
      */
-    private function mapFields(array $fields, $prefix = '')
+    private function getFields($validatorName)
     {
-        if (isset($fields['name'])) {
-            /// detect usage of "name" as a field group name
-            if (is_array($fields['name']) && isset($fields['name']['name'])) {
-                return $this->mapFields($fields['name'], 'name');
-            }
+        $fields = [];
+        if (isset($this->config['input_filter_specs'][$validatorName])) {
+            $fields = $this->config['input_filter_specs'][$validatorName];
+        } else if ($this->inputFilterManager->has($validatorName)) {
 
-            if ($prefix) {
-                $fields['name'] = sprintf('%s/%s', $prefix, $fields['name']);
+            $className = false;
+            if (isset($this->config['input_filters']['factories'][$validatorName])) {
+                $className = $this->config['input_filters']['factories'][$validatorName];
             }
-            return [$fields];
+            if (isset($this->config['input_filters']['invokables'][$validatorName])) {
+                $className = $this->config['input_filters']['invokables'][$validatorName];
+            }
+            if ($className) {
+                $class = new $className();
+                if (method_exists($class, 'getInputFilterDocumentation')) {
+                    $fields = $class->getInputFilterDocumentation();
+                } else if (method_exists($class, 'getInputFilterSpecification')) {
+                    $fields = $class->getInputFilterSpecification();
+                }
+            }
         }
+        return $fields;
+    }
 
-        $flatFields = [];
+    /**
+     * @param array $collection
+     * @param string $prefix To unwind nesting of fields
+     * @param $output
+     * @return array
+     */
+    private function mapFields($collection, $prefix = '', &$output)
+    {
+        foreach($collection as $key => $fields) {
+            if (isset($fields['type']) && $fields['type'] == 'Zend\InputFilter\InputFilter') {
+                unset($fields['type']);
+                $this->mapFields($fields, implode('/', array_filter([$prefix, $key])), $output);
 
-        foreach ($fields as $idx => $field) {
-            if (isset($field['type']) && is_subclass_of($field['type'], 'Zend\InputFilter\InputFilterInterface')) {
-                $filteredFields = array_diff_key($field, ['type' => 0]);
-                $fullindex = $prefix ? sprintf('%s/%s', $prefix, $idx) : $idx;
-                $flatFields = array_merge($flatFields, $this->mapFields($filteredFields, $fullindex));
-                continue;
+            } else if (isset($fields['type']) && is_string($fields['type']) && $fields['type'] != 'Zend\InputFilter\FileInput') {
+                $fields = $this->getField($fields['type']);
+                $this->mapFields($fields, implode('/', array_filter([$prefix, $key])), $output);
+
+            } else {
+                if (!isset($fields['name'])) {
+                    $fields['name'] = $key;
+                }
+                $fields['name'] = implode('/', array_filter([$prefix, $fields['name']]));
+
+                $output[] = $this->getField($fields);
             }
-
-            $flatFields = array_merge($flatFields, $this->mapFields($field, $prefix));
         }
-
-        return $flatFields;
     }
 
     /**
