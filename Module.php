@@ -34,7 +34,8 @@ class Module implements AutoloaderProviderInterface, ConfigProviderInterface
                     return new ApiFactory(
                         $services->get('ModuleManager'),
                         $services->get('Config'),
-                        $services->get('ZF\Configuration\ModuleUtils')
+                        $services->get('ZF\Configuration\ModuleUtils'),
+                        $services->get('InputFilterManager')
                     );
                 }
         ));

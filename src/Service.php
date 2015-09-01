@@ -239,7 +239,11 @@ class Service implements IteratorAggregate
      */
     public function getFields($type)
     {
-        return isset($this->fields[$type]) ? $this->fields[$type] : [];
+        if (isset($this->fields[$type])) {
+            return $this->fields[$type];
+        } else {
+            return isset($this->fields['input_filter']) ? $this->fields['input_filter'] : [];
+        }
     }
 
     /**
