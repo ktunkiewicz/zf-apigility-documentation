@@ -400,7 +400,7 @@ class ApiFactory
                 $this->mapFields($fields, implode('/', array_filter([$prefix, $key])), $output);
 
             } else if (isset($fields['type']) && is_string($fields['type']) && $fields['type'] != 'Zend\InputFilter\FileInput') {
-                $fields = $this->getField($fields['type']);
+                $fields = $this->getFields($fields['type']);
                 $this->mapFields($fields, implode('/', array_filter([$prefix, $key])), $output);
 
             } else {
